@@ -1,0 +1,28 @@
+[build]
+  command = "npm install && npm run build"
+  publish = "dist"
+  base = "/"
+  ignore = "false"  # Never skip build
+  force = "true"    # Force build even if no changes detected
+
+[build.environment]
+  NODE_VERSION = "18"
+  CI = "true"       # Ensure we're in CI mode
+  NETLIFY_BUILD_SKIP = "false"  # Never skip build
+  VITE_SUPABASE_URL = "https://pdiihywgdrclonsvdtrl.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBkaWloeXdnZHJjbG9uc3ZkdHJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ3MDAxNjksImV4cCI6MjA4MDI3NjE2OX0.OgP-Hes0_sPjc5IbM-8MukcUfCN_iLRBxQquQoIPUZA"
+
+[build.processing]
+  skip_processing = false  # Ensure processing is not skipped
+
+# Redirecionamento para SPA (Single Page Application)
+# Todas as rotas devem ser redirecionadas para index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[dev]
+  command = "vite"
+  port = 3000
+  publish = "dist"
