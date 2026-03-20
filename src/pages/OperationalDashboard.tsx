@@ -70,18 +70,16 @@ export const OperationalDashboard = () => {
 
   const [priceForm, setPriceForm] = useState<Partial<PriceRule>>({ clinicId: '', modality: 'USG', period: 'comercial', valor: 0, repasseProfessional: 0, repasseClinic: 0, taxaExtra: 0, taxaExtraProfessional: 0, taxaExtraClinic: 0, observacoes: '' });
   const [customModalityName, setCustomModalityName] = useState('');
-  const [selectedClinicFilter, setSelectedClinicFilter] = useState<string>(''); // Filtro de clínica na listagem
-  const [copyFromClinicId, setCopyFromClinicId] = useState<string>(''); // Clínica doadora (de onde copiar)
-  const [copyToClinicId, setCopyToClinicId] = useState<string>(''); // Clínica receptora (para onde copiar)
+  const [selectedClinicFilter, setSelectedClinicFilter] = useState<string>(''); 
+  const [copyFromClinicId, setCopyFromClinicId] = useState<string>(''); 
+  const [copyToClinicId, setCopyToClinicId] = useState<string>(''); 
 
-  // ESTADO LOCAL PARA PARCEIROS (Independente de permissões de admin)
   const [linkedPartners, setLinkedPartners] = useState<any[]>([]);
-  const [extraClinics, setExtraClinics] = useState<any[]>([]); // Clínicas buscadas manualmente para garantir disponibilidade
-  const [guestClinics, setGuestClinics] = useState<any[]>([]); // Clínicas convidadas (criadas pelo veterinário)
-  const [guestVetProfileIds, setGuestVetProfileIds] = useState<string[]>([]); // Vets convidados (owner_id = user.id)
-  const [ownerClinic, setOwnerClinic] = useState<any>(null); // Clínica que convidou o Vet Convidado (profile_id = ownerId)
+  const [extraClinics, setExtraClinics] = useState<any[]>([]); 
+  const [guestClinics, setGuestClinics] = useState<any[]>([]); 
+  const [guestVetProfileIds, setGuestVetProfileIds] = useState<string[]>([]); 
+  const [ownerClinic, setOwnerClinic] = useState<any>(null); 
 
-  // Busca parceiros diretamente do banco de dados para garantir que o dropdown funcione
   useEffect(() => {
     let isMounted = true;
     const fetchPartners = async () => {
@@ -97,20 +95,16 @@ export const OperationalDashboard = () => {
       }
       
       try {
-        // Equipe interna (recepção): usa perfil do assinante (ownerId) para parceiros - membro NÃO é parceiro
         const isTeamMember = (user.role === 'reception' || user.level === 5) && user.ownerId;
         const profileIdForPartners = isTeamMember ? user.ownerId : user.id;
-        console.log('🔄 Iniciando busca de parceiros para o usuário:', user.id, isTeamMember ? '(equipe interna, usando assinante)' : '');
         
-        // 1. Pega a lista de IDs de parceiros do perfil (do assinante quando for recepção)
         const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('partners')
           .eq('id', profileIdForPartners)
           .maybeSingle();
         
-        if (profileError) {
-          console.error("❌ Erro ao buscar perfil:", profileError);
+        if (profileError || !profile) {
           if (isMounted) {
             setLinkedPartners([]);
             setExtraClinics([]);
@@ -121,91 +115,34 @@ export const OperationalDashboard = () => {
           return;
         }
         
-        if (!profile) {
-          console.log('ℹ️ Perfil não encontrado para o usuário');
-          if (isMounted) {
-            setLinkedPartners([]);
-            setExtraClinics([]);
-            setGuestClinics([]);
-            setGuestVetProfileIds([]);
-            setOwnerClinic(null);
-          }
-          return;
-        }
-        
-        // Busca clínicas convidadas (criadas pelo assinante)
-        // Equipe interna: usa ownerId (assinante); Vet/Clínica: usa user.id
         const targetOwnerId = isTeamMember ? user.ownerId : user.id;
         const isGuest = user.ownerId && user.ownerId !== user.id;
         
-        console.log('🔍 Buscando clínicas convidadas:', {
-          userId: user.id,
-          ownerId: user.ownerId,
-          targetOwnerId,
-          isGuest,
-          role: user.role
-        });
-        
-        // Busca clínicas criadas pelo usuário atual
-        // IMPORTANTE: Busca na tabela 'users' onde ownerId = user.id (clínicas criadas por este usuário)
-        console.log('🔍 Buscando clínicas convidadas na tabela users:', {
-          targetOwnerId,
-          userId: user.id,
-          role: user.role
-        });
-        
-        const { data: guestProfiles, error: guestProfilesError } = await supabase
+        const { data: guestProfiles } = await supabase
           .from('profiles')
           .select('id, name, email, role, owner_id')
           .eq('owner_id', targetOwnerId)
           .eq('role', 'clinic');
         
-        if (guestProfilesError) {
-          console.error('❌ Erro ao buscar clínicas convidadas na tabela profiles:', guestProfilesError);
-        }
-        
         if (guestProfiles && guestProfiles.length > 0) {
-          console.log('🏥 Clínicas convidadas encontradas na tabela profiles:', guestProfiles.map(p => ({ id: p.id, name: p.name, owner_id: p.owner_id, email: p.email })));
           const guestClinicProfileIds = guestProfiles.map(p => p.id);
-          
-          // Busca as clínicas correspondentes na tabela 'clinics' usando profile_id
-          const { data: guestClinicsData, error: guestClinicsError } = await supabase
+          const { data: guestClinicsData } = await supabase
             .from('clinics')
             .select('*')
             .in('profile_id', guestClinicProfileIds);
           
-          if (guestClinicsError) {
-            console.error('❌ Erro ao buscar dados das clínicas convidadas na tabela clinics:', guestClinicsError);
-          }
-          
           if (isMounted && guestClinicsData) {
-            console.log('✅ Clínicas convidadas carregadas da tabela clinics:', guestClinicsData.map(c => ({ id: c.id, name: c.name, profileId: c.profile_id, email: c.email })));
             setGuestClinics(guestClinicsData.map(c => ({
-              id: c.id,
-              name: c.name,
-              document: c.document,
-              address: c.address,
-              phone: c.phone,
-              email: c.email,
-              logoUrl: c.logo_url,
-              profileId: c.profile_id
+              id: c.id, name: c.name, document: c.document, address: c.address,
+              phone: c.phone, email: c.email, logoUrl: c.logo_url, profileId: c.profile_id
             })));
           } else if (isMounted) {
-            console.warn('⚠️ Clínicas convidadas encontradas em profiles mas não em clinics:', {
-              guestProfiles: guestProfiles.map(p => ({ id: p.id, name: p.name, email: p.email })),
-              guestClinicProfileIds,
-              guestClinicsDataCount: guestClinicsData?.length || 0
-            });
             setGuestClinics([]);
           }
         } else {
-          if (isMounted) {
-            console.log('ℹ️ Nenhuma clínica convidada encontrada na tabela profiles para owner_id:', targetOwnerId);
-            setGuestClinics([]);
-          }
+          if (isMounted) setGuestClinics([]);
         }
 
-        // Busca veterinários convidados (owner_id = user.id, role = vet) - para dropdown de exames
         const { data: guestVetProfiles } = await supabase
           .from('profiles')
           .select('id')
@@ -217,26 +154,18 @@ export const OperationalDashboard = () => {
           setGuestVetProfileIds([]);
         }
 
-        // Vet Convidado: busca a clínica que o convidou (ownerId = profile_id da clínica)
-        // Corrige "Nenhuma clínica vinculada" quando vet foi adicionado via "Adicionar Membro" (sem link_partner)
         if (isMounted && isGuest && user.role === 'vet' && user.ownerId) {
-          const { data: ownerClinicData, error: ownerClinicError } = await supabase
+          const { data: ownerClinicData } = await supabase
             .from('clinics')
             .select('*')
             .eq('profile_id', user.ownerId)
             .maybeSingle();
-          if (!ownerClinicError && ownerClinicData) {
+          if (ownerClinicData) {
             setOwnerClinic({
-              id: ownerClinicData.id,
-              name: ownerClinicData.name,
-              document: ownerClinicData.document,
-              address: ownerClinicData.address,
-              phone: ownerClinicData.phone,
-              email: ownerClinicData.email,
-              logoUrl: ownerClinicData.logo_url,
-              profileId: ownerClinicData.profile_id
+              id: ownerClinicData.id, name: ownerClinicData.name, document: ownerClinicData.document,
+              address: ownerClinicData.address, phone: ownerClinicData.phone, email: ownerClinicData.email,
+              logoUrl: ownerClinicData.logo_url, profileId: ownerClinicData.profile_id
             });
-            console.log('🏥 Clínica do convite (ownerId) carregada para Vet Convidado:', ownerClinicData.name);
           } else {
             setOwnerClinic(null);
           }
@@ -245,70 +174,37 @@ export const OperationalDashboard = () => {
         }
         
         if (profile?.partners && Array.isArray(profile.partners) && profile.partners.length > 0) {
-          console.log('🔗 Parceiros encontrados no perfil:', profile.partners);
-          
-          // 2. Busca os dados completos desses parceiros
-          const { data: partners, error: partnersError } = await supabase
+          const { data: partners } = await supabase
             .from('profiles')
             .select('*')
             .in('id', profile.partners);
             
-          if (partnersError) {
-            console.error("Erro ao buscar dados dos parceiros:", partnersError);
-            return;
-          }
-          
           if (isMounted && partners) {
-            console.log('👥 Dados dos parceiros carregados:', partners.map(p => ({ id: p.id, name: p.name, role: p.role })));
             setLinkedPartners(partners);
 
-            // 3. Busca as clínicas correspondentes na tabela 'clinics' (caso não estejam no contexto)
-            // Isso corrige o problema de clínicas parceiras não aparecerem no dropdown devido a delay ou RLS
             const clinicPartners = partners.filter(p => p.role === 'clinic');
             const clinicProfileIds = clinicPartners.map(p => p.id);
-            console.log('🏥 Profile IDs de clínicas parceiras:', clinicProfileIds);
-            console.log('🏥 Dados dos parceiros clínicas:', clinicPartners.map(p => ({ id: p.id, name: p.name, email: p.email })));
             
             if (clinicProfileIds.length > 0) {
-               console.log('🔍 Buscando clínicas com profile_ids:', clinicProfileIds);
-               
-               // Tenta buscar por profile_id primeiro
                const { data: foundClinics, error: clinicsError } = await supabase
                  .from('clinics')
                  .select('*')
                  .in('profile_id', clinicProfileIds);
                
                if (clinicsError) {
-                 console.error("❌ Erro ao buscar clínicas parceiras por profile_id:", clinicsError);
-                 
-                 // Fallback: tenta buscar por email se a busca por profile_id falhar
                  const clinicEmails = clinicPartners.map(p => p.email).filter(Boolean);
                  if (clinicEmails.length > 0) {
-                   console.log('🔄 Tentando buscar clínicas por email como fallback:', clinicEmails);
-                   const { data: foundByEmail, error: emailError } = await supabase
+                   const { data: foundByEmail } = await supabase
                      .from('clinics')
                      .select('*')
                      .in('email', clinicEmails);
                    
-                   if (emailError) {
-                     console.error("❌ Erro ao buscar clínicas por email:", emailError);
-                   } else if (isMounted && foundByEmail) {
-                     console.log('✅ Clínicas encontradas por email (fallback):', foundByEmail.map(c => ({ id: c.id, name: c.name, profileId: c.profile_id, email: c.email })));
+                   if (isMounted && foundByEmail) {
                      setExtraClinics(prev => {
-                       // Merge com clínicas existentes, evitando duplicatas
                        const merged = [...prev];
                        foundByEmail.forEach(c => {
                          if (!merged.some(existing => existing.id === c.id)) {
-                           merged.push({
-                             id: c.id,
-                             name: c.name,
-                             document: c.document,
-                             address: c.address,
-                             phone: c.phone,
-                             email: c.email,
-                             logoUrl: c.logo_url,
-                             profileId: c.profile_id
-                           });
+                           merged.push({ id: c.id, name: c.name, document: c.document, address: c.address, phone: c.phone, email: c.email, logoUrl: c.logo_url, profileId: c.profile_id });
                          }
                        });
                        return merged;
@@ -316,88 +212,35 @@ export const OperationalDashboard = () => {
                    }
                  }
                } else if (isMounted && foundClinics) {
-                 console.log('✅ Clínicas parceiras encontradas por profile_id:', foundClinics.map(c => ({ id: c.id, name: c.name, profileId: c.profile_id })));
-                 
-                 // Verifica se todas as clínicas parceiras foram encontradas
                  if (foundClinics.length < clinicProfileIds.length) {
-                   console.warn('⚠️ Nem todas as clínicas parceiras foram encontradas:', {
-                     esperadas: clinicProfileIds.length,
-                     encontradas: foundClinics.length,
-                     encontradasIds: foundClinics.map(c => c.profile_id),
-                     esperadasIds: clinicProfileIds
-                   });
-                   
-                   // Tenta buscar as que faltaram por email
                    const foundIds = foundClinics.map(c => c.profile_id);
                    const missingPartners = clinicPartners.filter(p => !foundIds.includes(p.id));
                    if (missingPartners.length > 0) {
                      const missingEmails = missingPartners.map(p => p.email).filter(Boolean);
                      if (missingEmails.length > 0) {
-                       console.log('🔄 Buscando clínicas faltantes por email:', missingEmails);
-                       const { data: foundMissing, error: missingError } = await supabase
+                       const { data: foundMissing } = await supabase
                          .from('clinics')
                          .select('*')
                          .in('email', missingEmails);
                        
-                       if (!missingError && foundMissing) {
-                         console.log('✅ Clínicas faltantes encontradas por email:', foundMissing.map(c => ({ id: c.id, name: c.name })));
-                         foundClinics.push(...foundMissing);
-                       }
+                       if (foundMissing) foundClinics.push(...foundMissing);
                      }
                    }
                  }
                  
-                 // Atualiza extraClinics, fazendo merge com existentes
                  setExtraClinics(prev => {
                    const merged = [...prev];
                    foundClinics.forEach(c => {
                      if (!merged.some(existing => existing.id === c.id)) {
-                       merged.push({
-                         id: c.id,
-                         name: c.name,
-                         document: c.document,
-                         address: c.address,
-                         phone: c.phone,
-                         email: c.email,
-                         logoUrl: c.logo_url,
-                         profileId: c.profile_id
-                       });
+                       merged.push({ id: c.id, name: c.name, document: c.document, address: c.address, phone: c.phone, email: c.email, logoUrl: c.logo_url, profileId: c.profile_id });
                      }
                    });
                    return merged;
                  });
-               } else if (isMounted) {
-                 console.warn('⚠️ Nenhuma clínica encontrada por profile_id, mas há parceiros clínicas. Tentando por email...', clinicProfileIds);
-                 
-                 // Última tentativa: busca por email
-                 const clinicEmails = clinicPartners.map(p => p.email).filter(Boolean);
-                 if (clinicEmails.length > 0) {
-                   const { data: foundByEmail, error: emailError } = await supabase
-                     .from('clinics')
-                     .select('*')
-                     .in('email', clinicEmails);
-                   
-                   if (!emailError && foundByEmail && foundByEmail.length > 0) {
-                     console.log('✅ Clínicas encontradas por email (última tentativa):', foundByEmail.map(c => ({ id: c.id, name: c.name })));
-                     setExtraClinics(foundByEmail.map(c => ({
-                        id: c.id,
-                        name: c.name,
-                        document: c.document,
-                        address: c.address,
-                        phone: c.phone,
-                        email: c.email,
-                        logoUrl: c.logo_url,
-                        profileId: c.profile_id
-                     })));
-                   }
-                 }
                }
-            } else {
-              console.log('ℹ️ Nenhuma clínica encontrada nos parceiros (todos são vets ou outros tipos)');
             }
           }
         } else {
-          console.log('ℹ️ Nenhum parceiro encontrado no perfil do usuário');
           if (isMounted) {
              setLinkedPartners([]);
              setExtraClinics([]);
@@ -411,17 +254,6 @@ export const OperationalDashboard = () => {
     return () => { isMounted = false; };
   }, [user]);
   
-  // Força atualização do RegistryContext quando parceiros são carregados
-  useEffect(() => {
-    if (linkedPartners.length > 0 || extraClinics.length > 0) {
-      // Pequeno delay para garantir que o contexto seja atualizado
-      const timer = setTimeout(() => {
-        console.log('🔄 Parceiros carregados, contexto deve ser atualizado');
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [linkedPartners, extraClinics]);
-
   useEffect(() => {
     if (activeTab === 'list') {
       setShowFinancialStats(true);
@@ -436,6 +268,16 @@ export const OperationalDashboard = () => {
 
   useEffect(() => {
     if (user) {
+      if ((user.role === 'reception' || user.level === 5) && currentTenant) {
+        setLoggedUserEntity({ type: currentTenant.type, id: currentTenant.id });
+        if (currentTenant.type === 'vet') {
+          setFormData(prev => ({ ...prev, veterinarianId: currentTenant.id }));
+        } else {
+          setFormData(prev => ({ ...prev, clinicId: currentTenant.id }));
+        }
+        return;
+      }
+
       const vetByProfile = veterinarians.find(v => v.profileId === user.id);
       if (vetByProfile) {
         setLoggedUserEntity({ type: 'vet', id: vetByProfile.id });
@@ -465,81 +307,54 @@ export const OperationalDashboard = () => {
         setFormData(prev => ({ ...prev, clinicId: clinicByEmail.id })); 
       }
     }
-  }, [user, veterinarians, clinics]);
+  }, [user, veterinarians, clinics, currentTenant]);
 
   const isPartnerView = useMemo(() => {
     return currentTenant && !currentTenant.isMe;
   }, [currentTenant]);
 
-  // CORRIGIDO: Usa linkedPartners + compatibilidade profile_id + dono como vet
   const availableVeterinarians = useMemo(() => {
     if (currentTenant?.type === 'vet') {
       return veterinarians.filter(v => v.id === currentTenant.id);
     }
     if (currentTenant?.type === 'clinic') {
       const clinicId = currentTenant.id;
-      const profileId = user?.id;
+      const profileIdToCheck = user?.ownerId || user?.id;
 
-      // 1. Legacy: vets com linked_clinic_ids contendo clinic_id OU profile_id
-      // (link_partner_by_email grava requester_id=profile_id quando clínica vincula)
       const legacyMatches = veterinarians.filter(v => {
         const ids = v.linkedClinicIds || [];
-        return ids.includes(clinicId) || (!!profileId && ids.includes(profileId));
+        return ids.includes(clinicId) || (!!profileIdToCheck && ids.includes(profileIdToCheck));
       });
 
-      // 2. Parceiros em profile.partners
       const linkedVetProfileIds = linkedPartners
         .filter(u => u.role === 'vet')
         .map(u => u.id);
       const newMatches = veterinarians.filter(v => v.profileId && linkedVetProfileIds.includes(v.profileId));
 
-      // 3. Dono da clínica como veterinário (profile_id da clínica = user.id)
       const currentClinic = clinics.find(c => c.id === clinicId);
-      const ownerAsVet = profileId && currentClinic?.profileId === profileId
-        ? veterinarians.filter(v => v.profileId === profileId)
+      const ownerAsVet = profileIdToCheck && currentClinic?.profileId === profileIdToCheck
+        ? veterinarians.filter(v => v.profileId === profileIdToCheck)
         : [];
 
-      // 4. Veterinários convidados (owner_id = user.id, criados pela clínica)
       const guestVetMatches = veterinarians.filter(v =>
         v.profileId && guestVetProfileIds.includes(v.profileId)
       );
 
-      // Merge sem duplicatas
       const combined = [...legacyMatches, ...newMatches, ...ownerAsVet, ...guestVetMatches];
       return Array.from(new Map(combined.map(item => [item.id, item])).values());
     }
     return [];
-  }, [veterinarians, currentTenant, linkedPartners, user?.id, clinics, guestVetProfileIds]);
+  }, [veterinarians, currentTenant, linkedPartners, user, clinics, guestVetProfileIds]);
 
-  // CORRIGIDO: Usa linkedPartners E extraClinics para encontrar Clínicas parceiras do Vet
   const availableClinicsForVet = useMemo(() => {
-    // Verifica se o usuário é um convidado
     const isGuest = user?.ownerId && user.ownerId !== user.id;
     
-    if (isGuest) {
-      console.log('🎨 CONVIDADO DETECTADO em availableClinicsForVet:', {
-        userId: user.id,
-        ownerId: user.ownerId,
-        loggedUserEntityType: loggedUserEntity?.type,
-        loggedUserEntityId: loggedUserEntity?.id,
-        guestClinicsCount: guestClinics.length,
-        guestClinics: guestClinics.map(gc => ({ id: gc.id, name: gc.name }))
-      });
-    }
-    
-    // Se for clínica convidada, mostra apenas a própria clínica
     if (isGuest && loggedUserEntity?.type === 'clinic') {
       const ownClinic = clinics.find(c => c.id === loggedUserEntity.id);
-      if (ownClinic) {
-        console.log('🏥 Clínica convidada - retornando apenas própria clínica:', ownClinic.name);
-        return [ownClinic];
-      }
-      console.warn('⚠️ Clínica convidada não encontrada no contexto');
+      if (ownClinic) return [ownClinic];
       return [];
     }
     
-    // Verifica se é veterinário pelo loggedUserEntity, currentTenant OU role do usuário
-    // Importante: user.role === 'vet' garante que Vet Convidado (ex: Maricota) veja clínicas mesmo com currentTenant = clínica
     const isVet = loggedUserEntity?.type === 'vet' || currentTenant?.type === 'vet' || user?.role === 'vet';
     
     if (!isVet) {
@@ -547,13 +362,8 @@ export const OperationalDashboard = () => {
     }
     
     const vetId = loggedUserEntity?.type === 'vet' ? loggedUserEntity.id : currentTenant?.id;
-    if (!vetId) {
-      console.warn('⚠️ Vet ID não encontrado para buscar clínicas parceiras');
-      return [];
-    }
+    if (!vetId) return [];
     
-    // Se for veterinário convidado, inclui guestClinics (que criou) + extraClinics (link_partner) + ownerClinic (clínica que o convidou)
-    // ownerClinic corrige: Vet adicionado via "Adicionar Membro" tem ownerId mas pode não ter profile.partners
     if (isGuest && (loggedUserEntity?.type === 'vet' || user?.role === 'vet')) {
       const merged = [...guestClinics];
       if (ownerClinic && !merged.some(m => m.id === ownerClinic.id)) {
@@ -568,104 +378,33 @@ export const OperationalDashboard = () => {
       uniqueForMerge.filter(c => c.profileId && linkedClinicProfileIds.includes(c.profileId)).forEach(c => {
         if (!merged.some(m => m.id === c.id)) merged.push(c);
       });
-      console.log('👨‍⚕️ Veterinário convidado - clínicas (owner + próprias + parceiras):', merged.map(c => ({ id: c.id, name: c.name })));
       return merged;
     }
     
     const currentVet = veterinarians.find(v => v.id === vetId);
     const legacyIds = currentVet?.linkedClinicIds || [];
 
-    // IDs dos perfis de clínicas parceiras
     const linkedClinicProfileIds = linkedPartners
       .filter(u => u.role === 'clinic')
       .map(u => u.id);
 
-    // Merge TODAS as clínicas (context + extra + convidadas), removendo duplicatas por ID
     const allClinics = [...clinics, ...extraClinics, ...guestClinics];
     const uniqueClinics = Array.from(new Map(allClinics.map(c => [c.id, c])).values());
 
-      // Filtra clínicas que são parceiras:
-      // PRIORIDADE 1: Clínicas convidadas (guestClinics - criadas pelo veterinário) - DEVE SEMPRE APARECER
-      // 2. Clínicas no array legacy (linkedClinicIds do vet)
-      // 3. Clínicas cujo profile_id está na lista de parceiros
-      // 4. Clínicas que estão em extraClinics (já foram validadas como parceiras)
-      // 5. Clínicas do contexto que têm profile_id correspondente a um parceiro
       const filtered = uniqueClinics.filter(c => {
-        // PRIORIDADE 1: Se está em guestClinics, significa que foi criada pelo veterinário (clínica convidada)
-        // Isso deve ter prioridade máxima para garantir que clínicas criadas pelo vet apareçam
-        if (guestClinics.some(gc => gc.id === c.id)) {
-          console.log('✅ Clínica convidada incluída no filtro:', c.name, 'ID:', c.id);
-          return true;
-        }
-        
-        // Verifica se está no array legacy
-        if (legacyIds.includes(c.id)) {
-          return true;
-        }
-        
-        // Verifica se o profile_id está na lista de parceiros
-        if (c.profileId && linkedClinicProfileIds.includes(c.profileId)) {
-          return true;
-        }
-        
-        // Se está em extraClinics, significa que foi encontrada como parceira
-        if (extraClinics.some(ec => ec.id === c.id)) {
-          return true;
-        }
-        
-        // Verifica se o profile_id da clínica do contexto corresponde a um parceiro
-        // Isso cobre casos onde a clínica já está no RegistryContext mas não foi encontrada na busca extra
+        if (guestClinics.some(gc => gc.id === c.id)) return true;
+        if (legacyIds.includes(c.id)) return true;
+        if (c.profileId && linkedClinicProfileIds.includes(c.profileId)) return true;
+        if (extraClinics.some(ec => ec.id === c.id)) return true;
         if (c.profileId) {
           const matchingPartner = linkedPartners.find(p => p.id === c.profileId && p.role === 'clinic');
-          if (matchingPartner) {
-            return true;
-          }
+          if (matchingPartner) return true;
         }
-        
         return false;
       });
-      
-      console.log('📋 Clínicas filtradas para veterinário:', {
-        vetId,
-        vetName: currentVet?.name,
-        totalUnique: uniqueClinics.length,
-        guestClinicsCount: guestClinics.length,
-        guestClinics: guestClinics.map(gc => ({ id: gc.id, name: gc.name, profileId: gc.profileId })),
-        linkedPartnersCount: linkedPartners.length,
-        linkedPartners: linkedPartners.map(p => ({ id: p.id, name: p.name, role: p.role })),
-        filteredCount: filtered.length,
-        filtered: filtered.map(c => ({ id: c.id, name: c.name, profileId: c.profileId }))
-      });
-
-    // Log detalhado apenas se não encontrou clínicas mas deveria
-    if (filtered.length === 0 && (linkedClinicProfileIds.length > 0 || legacyIds.length > 0 || extraClinics.length > 0)) {
-      console.warn('⚠️ Nenhuma clínica parceira encontrada, mas há indicadores de parceiros:', {
-        vetId,
-        legacyIds,
-        linkedClinicProfileIds,
-        linkedPartners: linkedPartners.map(p => ({ id: p.id, name: p.name, role: p.role })),
-        extraClinics: extraClinics.map(c => ({ id: c.id, name: c.name, profileId: c.profileId })),
-        allClinics: uniqueClinics.map(c => ({ id: c.id, name: c.name, profileId: c.profileId }))
-      });
-    }
 
     return filtered;
   }, [clinics, extraClinics, guestClinics, ownerClinic, loggedUserEntity, currentTenant, veterinarians, linkedPartners, user]);
-
-  // Log quando o modal de preços abrir (movido para depois das declarações)
-  useEffect(() => {
-    if (isPriceModalOpen && (loggedUserEntity?.type === 'vet' || currentTenant?.type === 'vet')) {
-      console.log('📋 Modal de Preços ABERTO - Estado atual:', {
-        loggedUserEntityType: loggedUserEntity?.type,
-        currentTenantType: currentTenant?.type,
-        availableClinicsForVetCount: availableClinicsForVet.length,
-        availableClinicsForVet: availableClinicsForVet.map(c => ({ id: c.id, name: c.name, profileId: c.profileId })),
-        linkedPartners: linkedPartners.map(p => ({ id: p.id, name: p.name, role: p.role })),
-        extraClinics: extraClinics.map(c => ({ id: c.id, name: c.name, profileId: c.profileId })),
-        clinics: clinics.map(c => ({ id: c.id, name: c.name, profileId: c.profileId }))
-      });
-    }
-  }, [isPriceModalOpen, loggedUserEntity, currentTenant, availableClinicsForVet, linkedPartners, extraClinics, clinics]);
 
   const fetchData = async () => {
     if (!currentTenant) return;
@@ -675,28 +414,67 @@ export const OperationalDashboard = () => {
 
     let query = supabase.from('exams').select('*').order('date', { ascending: false });
 
-    if (currentTenant.type === 'vet') {
-      const possibleIds = new Set<string>();
-      if (currentTenant.id) possibleIds.add(currentTenant.id);
-      if (user?.id) possibleIds.add(user.id);
-      if (user?.id) {
-        veterinarians
-          .filter(v => v.profileId === user.id)
-          .forEach(v => possibleIds.add(v.id));
+    const vetIds = new Set<string>();
+    const clinicIds = new Set<string>();
+
+    if (currentTenant.id) {
+      if (currentTenant.type === 'vet') vetIds.add(currentTenant.id);
+      else clinicIds.add(currentTenant.id);
+    }
+
+    if (user?.id) {
+      vetIds.add(user.id);
+      clinicIds.add(user.id);
+      veterinarians.filter(v => v.profileId === user.id).forEach(v => vetIds.add(v.id));
+      clinics.filter(c => c.profileId === user.id).forEach(c => clinicIds.add(c.id));
+    }
+
+    if (user?.ownerId) {
+      vetIds.add(user.ownerId);
+      clinicIds.add(user.ownerId);
+      veterinarians.filter(v => v.profileId === user.ownerId).forEach(v => vetIds.add(v.id));
+      clinics.filter(c => c.profileId === user.ownerId).forEach(c => clinicIds.add(c.id));
+    }
+
+    if (user?.level === 5 || user?.role === 'reception') {
+      const vIds = Array.from(vetIds).join(',');
+      const cIds = Array.from(clinicIds).join(',');
+      
+      const orConditions = [];
+      if (vIds) orConditions.push(`veterinarian_id.in.(${vIds})`);
+      if (cIds) orConditions.push(`clinic_id.in.(${cIds})`);
+      
+      if (orConditions.length > 0) {
+        query = query.or(orConditions.join(','));
+      } else {
+        query = query.eq('id', '00000000-0000-0000-0000-000000000000');
       }
-      const idsArray = Array.from(possibleIds);
+    } 
+    else if (currentTenant.type === 'vet') {
+      const idsArray = Array.from(vetIds);
       if (idsArray.length > 0) {
         query = query.in('veterinarian_id', idsArray);
       } else {
         query = query.eq('veterinarian_id', currentTenant.id);
       }
     } else {
-      query = query.eq('clinic_id', currentTenant.id);
-      if ((isPartnerView || user?.level === 5) && loggedUserEntity?.type === 'vet') {
-         const possibleIds = new Set<string>();
-         possibleIds.add(loggedUserEntity.id);
-         if (user?.id) possibleIds.add(user.id);
-         query = query.in('veterinarian_id', Array.from(possibleIds));
+      const idsArray = Array.from(clinicIds);
+      if (idsArray.length > 0) {
+        query = query.in('clinic_id', idsArray);
+      } else {
+        query = query.eq('clinic_id', currentTenant.id);
+      }
+      
+      if (isPartnerView && loggedUserEntity?.type === 'vet') {
+         const myVetIds = new Set<string>();
+         if (loggedUserEntity.id) myVetIds.add(loggedUserEntity.id);
+         if (user?.id) myVetIds.add(user.id);
+         veterinarians.filter(v => v.profileId === user?.id).forEach(v => myVetIds.add(v.id));
+         
+         const myVetIdsArray = Array.from(myVetIds);
+         if (myVetIdsArray.length > 0) {
+           query = query.in('veterinarian_id', myVetIdsArray);
+         }
       }
     }
 
@@ -704,51 +482,27 @@ export const OperationalDashboard = () => {
 
     if (examsData) {
       setExams(examsData.map(e => ({
-        id: e.id, 
-        date: e.date, 
-        petName: e.pet_name,
-        species: e.species, 
-        requesterVet: e.requester_vet, 
-        requesterCrmv: e.requester_crmv, 
-        modality: e.modality, 
-        period: e.period, 
-        studies: e.studies, 
-        studyDescription: e.study_description, 
-        rxStudies: e.rx_studies, 
-        veterinarianId: e.veterinarian_id, 
-        clinicId: e.clinic_id, 
-        machineOwner: e.machine_owner, 
-        totalValue: e.total_value, 
-        repasseProfessional: e.repasse_professional, 
-        repasseClinic: e.repasse_clinic, 
-        createdAt: e.created_at, 
-        reportContent: e.report_content, 
-        reportImages: e.report_images, 
-        status: e.status
+        id: e.id, date: e.date, petName: e.pet_name, species: e.species, requesterVet: e.requester_vet, 
+        requesterCrmv: e.requester_crmv, modality: e.modality, period: e.period, studies: e.studies, 
+        studyDescription: e.study_description, rxStudies: e.rx_studies, veterinarianId: e.veterinarian_id, 
+        clinicId: e.clinic_id, machineOwner: e.machine_owner, totalValue: e.total_value, 
+        repasseProfessional: e.repasse_professional, repasseClinic: e.repasse_clinic, createdAt: e.created_at, 
+        reportContent: e.report_content, reportImages: e.report_images, status: e.status
       })));
     }
 
-    // Carrega regras de preço sempre (incluindo em modo parceiro) para que a Prévia Total funcione
-    const isGuest = user?.ownerId && user.ownerId !== user.id;
     let priceQuery = supabase.from('price_rules').select('*');
     
-    if (isGuest) {
-      // Se o usuário é um convidado (tem ownerId), filtra apenas as regras vinculadas a ele
-      if (loggedUserEntity?.type === 'clinic') {
-        priceQuery = priceQuery.eq('clinic_id', loggedUserEntity.id);
-      } else if (loggedUserEntity?.type === 'vet') {
-        const guestClinicIds = guestClinics.map(gc => gc.id);
-        if (guestClinicIds.length > 0) {
-          priceQuery = priceQuery.in('clinic_id', guestClinicIds);
-        } else {
-          priceQuery = priceQuery.eq('clinic_id', 'nonexistent');
-        }
-      }
-    } else if (isPartnerView && currentTenant?.type === 'clinic') {
-      // Em modo parceiro visualizando como clínica: carrega regras da clínica atual para a Prévia Total
+    if (currentTenant.type === 'clinic') {
       priceQuery = priceQuery.eq('clinic_id', currentTenant.id);
+    } else {
+      const availableClinicIds = availableClinicsForVet.map(c => c.id);
+      if (availableClinicIds.length > 0) {
+        priceQuery = priceQuery.in('clinic_id', availableClinicIds);
+      } else {
+        priceQuery = priceQuery.eq('clinic_id', 'none'); 
+      }
     }
-    // Caso contrário: busca todas as regras (comportamento original)
     
     const { data: pricesData } = await priceQuery;
     if (pricesData) {
@@ -764,7 +518,7 @@ export const OperationalDashboard = () => {
 
   useEffect(() => {
     fetchData();
-  }, [currentTenant, isPartnerView, loggedUserEntity, veterinarians]);
+  }, [currentTenant, isPartnerView, loggedUserEntity, veterinarians, clinics, user, availableClinicsForVet]);
 
   useEffect(() => {
     if (currentTenant && !editingExamId) {
@@ -780,10 +534,15 @@ export const OperationalDashboard = () => {
   
   const canViewFinancials = user?.permissions?.view_financials && !isPartnerView;
   const canManagePrices = user?.permissions?.manage_prices && !isPartnerView;
-  const canCreateExam = (user?.permissions?.criar_exame || user?.permissions?.edit_reports) && !isPartnerView;
   
-  // Regra de Negócio: Laudos são restritos a Veterinários e Admins. Clínicas (PJ) não laudam.
-  const canEditReports = user?.role === 'vet' || user?.level === 1;
+  // CORREÇÃO: Separar rigorosamente as permissões de criar exame vs laudar
+  const canCreateExam = (user?.level === 1 || user?.role === 'clinic' || user?.role === 'vet' || user?.permissions?.criar_exame) && !isPartnerView;
+  
+  // Lápis (Editar Dados do Exame): Requer ser Vet/Clínica ou ter permissão explícita de criar/editar dados
+  const canEditExamDetails = user?.level === 1 || user?.role === 'clinic' || user?.role === 'vet' || user?.permissions?.criar_exame || user?.permissions?.editar_resultados;
+  
+  // Estetoscópio (Laudar): Requer ser Vet ou ter permissão explícita de laudar
+  const canEditReports = user?.level === 1 || user?.role === 'vet' || user?.permissions?.edit_reports;
 
   const getBrandingForExam = (exam: Exam): BrandingInfo => {
     return { 
@@ -834,7 +593,7 @@ export const OperationalDashboard = () => {
         
         return {
           date: formData.date,
-          pet_name: formData.petName,
+          petName: formData.petName,
           species: formData.species === 'Outros' ? formData.customSpecies : formData.species,
           requester_vet: formData.requesterVet,
           requester_crmv: formData.requesterCrmv,
@@ -968,8 +727,6 @@ export const OperationalDashboard = () => {
       setEditingPrice(null);
       
       let defaultClinicId = '';
-      
-      // Verifica tanto loggedUserEntity quanto currentTenant
       const isClinic = loggedUserEntity?.type === 'clinic' || currentTenant?.type === 'clinic';
       const isVet = loggedUserEntity?.type === 'vet' || currentTenant?.type === 'vet';
       
@@ -978,21 +735,9 @@ export const OperationalDashboard = () => {
       } 
       else if (isVet && availableClinicsForVet.length > 0) {
         defaultClinicId = availableClinicsForVet[0].id;
-        console.log('🏥 Clínica padrão selecionada:', availableClinicsForVet[0].name);
       }
       else if (currentTenant?.type === 'clinic') {
         defaultClinicId = currentTenant.id;
-      }
-
-      // Debug: mostra informações sobre clínicas disponíveis
-      if (isVet) {
-        console.log('🔍 Debug ao abrir modal de preços:', {
-          isVet,
-          availableClinicsForVet: availableClinicsForVet.map(c => ({ id: c.id, name: c.name })),
-          linkedPartners: linkedPartners.filter(p => p.role === 'clinic').map(p => ({ id: p.id, name: p.name })),
-          extraClinics: extraClinics.map(c => ({ id: c.id, name: c.name })),
-          defaultClinicId
-        });
       }
 
       setPriceForm({ 
@@ -1138,7 +883,6 @@ export const OperationalDashboard = () => {
     };
   }, [filteredExamsForReport]);
 
-  // --- HELPERS PARA MÚLTIPLOS EXAMES ---
   const addItem = () => {
     setFormData(prev => ({
       ...prev,
@@ -1161,14 +905,12 @@ export const OperationalDashboard = () => {
     }));
   };
 
-  // clinicId efetivo para o cálculo: prioriza formData, depois filtro da tabela de preços, depois entidade/tenant
   const effectiveClinicId = formData.clinicId 
     || selectedClinicFilter 
     || (loggedUserEntity?.type === 'clinic' ? loggedUserEntity.id : null) 
     || (currentTenant?.type === 'clinic' ? currentTenant.id : null) 
     || '';
 
-  // Cálculo de Prévia Total
   const previewTotals = useMemo(() => {
     return formData.items.reduce((acc, item) => {
       if (!item.modality) return acc;
@@ -1316,8 +1058,6 @@ export const OperationalDashboard = () => {
                     exams
                       .filter(e => e.petName.toLowerCase().includes(filterPet.toLowerCase()))
                       .map(exam => {
-                        const canEditExamDetails = user?.level === 1 || user?.role !== 'vet' || !exam.clinicId;
-
                         return (
                         <tr key={exam.id} className="hover:bg-gray-50/50 transition-colors group">
                           <td className="p-4 whitespace-nowrap text-gray-500">
@@ -1525,7 +1265,6 @@ export const OperationalDashboard = () => {
                 )}
               </div>
 
-              {/* CONFIGURAÇÕES GERAIS DE PREÇO */}
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                 <h3 className="font-bold text-gray-700 mb-3 text-sm uppercase tracking-wide">Configuração de Cobrança</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1549,7 +1288,6 @@ export const OperationalDashboard = () => {
                 </div>
               </div>
 
-              {/* LISTA DE EXAMES (Múltiplos) */}
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-bold text-gray-700">Exames Realizados</h3>
@@ -1588,7 +1326,6 @@ export const OperationalDashboard = () => {
                             value={item.modality} 
                             onChange={e => {
                               updateItem(item.id, 'modality', e.target.value);
-                              // Limpa a descrição quando troca de modalidade (exceto se for OUTROS)
                               if (e.target.value !== 'OUTROS') {
                                 updateItem(item.id, 'studyDescription', '');
                               }
@@ -1649,7 +1386,6 @@ export const OperationalDashboard = () => {
                 </div>
               </div>
 
-              {/* RESUMO FINANCEIRO (PREVIEW) */}
               <div className="bg-petcare-light/10 border border-petcare-light/20 rounded-xl p-6 animate-fade-in">
                 <div className="flex items-center gap-2 mb-4">
                   <DollarSign className="w-5 h-5 text-petcare-dark" />
@@ -1752,12 +1488,10 @@ export const OperationalDashboard = () => {
                 Tabela de Preços
               </h2>
               <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-                {/* Dropdown para filtrar por clínica - só mostra se não for convidado ou tiver mais de uma clínica */}
                 {(loggedUserEntity?.type === 'vet' || currentTenant?.type === 'vet') && availableClinicsForVet.length > 0 && (
                   <>
                     {(() => {
                       const isGuest = user?.ownerId && user.ownerId !== user.id;
-                      // Se for convidado e tiver apenas 1 clínica, não mostra o dropdown
                       if (isGuest && availableClinicsForVet.length === 1) {
                         return (
                           <div className="px-4 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 text-gray-600">
@@ -1862,7 +1596,7 @@ export const OperationalDashboard = () => {
                   value={priceForm.clinicId || ''} 
                   onChange={e => {
                     setPriceForm({...priceForm, clinicId: e.target.value});
-                    setCopyFromClinicId(''); // Reset ao trocar clínica
+                    setCopyFromClinicId(''); 
                   }} 
                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-petcare-DEFAULT focus:border-petcare-DEFAULT"
                   required
@@ -1888,7 +1622,6 @@ export const OperationalDashboard = () => {
             </div>
           )}
 
-          {/* Funcionalidade de Copiar Preços de Outra Clínica */}
           {!editingPrice && (loggedUserEntity?.type === 'vet' || currentTenant?.type === 'vet') && availableClinicsForVet.length > 0 && (
             <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
               <div className="flex items-start gap-3 mb-4">
@@ -1902,14 +1635,13 @@ export const OperationalDashboard = () => {
               </div>
               
               <div className="space-y-3">
-                {/* Primeiro Select: Clínica Doadora (de onde copiar) */}
                 <div>
                   <label className="block text-xs font-semibold text-teal-700 mb-1">Clínica Doadora (de onde copiar)</label>
                   <select
                     value={copyFromClinicId}
                     onChange={(e) => {
                       setCopyFromClinicId(e.target.value);
-                      setCopyToClinicId(''); // Limpa o destino ao trocar a origem
+                      setCopyToClinicId(''); 
                     }}
                     className="w-full px-3 py-2 border border-teal-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500 bg-white"
                   >
@@ -1920,7 +1652,6 @@ export const OperationalDashboard = () => {
                   </select>
                 </div>
 
-                {/* Segundo Select: Clínica Receptora (para onde copiar) */}
                 {copyFromClinicId && (
                   <div className="animate-fade-in">
                     <label className="block text-xs font-semibold text-teal-700 mb-1">Clínica Receptora (para onde copiar)</label>
@@ -1939,7 +1670,6 @@ export const OperationalDashboard = () => {
                   </div>
                 )}
 
-                {/* Botão de Copiar */}
                 {copyFromClinicId && copyToClinicId && (
                   <button
                     type="button"
@@ -1947,39 +1677,22 @@ export const OperationalDashboard = () => {
                       try {
                         const sourceClinic = availableClinicsForVet.find(c => c.id === copyFromClinicId);
                         const targetClinic = availableClinicsForVet.find(c => c.id === copyToClinicId);
-                        
-                        console.log('📋 Iniciando cópia de regras de preço:', {
-                          fromClinicId: copyFromClinicId,
-                          fromClinicName: sourceClinic?.name,
-                          toClinicId: copyToClinicId,
-                          toClinicName: targetClinic?.name
-                        });
                             
-                        // Busca todas as regras de preço da clínica doadora
                         const { data: sourceRules, error: sourceRulesError } = await supabase
                           .from('price_rules')
                           .select('*')
                           .eq('clinic_id', copyFromClinicId);
 
                         if (sourceRulesError) {
-                          console.error('❌ Erro ao buscar regras de preço:', sourceRulesError);
                           alert(`Erro ao buscar regras de preço: ${sourceRulesError.message}`);
                           return;
                         }
-
-                        console.log('📊 Regras encontradas:', {
-                          clinicId: copyFromClinicId,
-                          clinicName: sourceClinic?.name,
-                          rulesCount: sourceRules?.length || 0,
-                          rules: sourceRules?.map(r => ({ id: r.id, modality: r.modality, period: r.period, label: r.label }))
-                        });
 
                         if (!sourceRules || sourceRules.length === 0) {
                           alert(`A clínica "${sourceClinic?.name || 'selecionada'}" não possui regras de preço para copiar.`);
                           return;
                         }
 
-                        // Verifica se já existem regras para a clínica receptora
                         const { data: existingRules } = await supabase
                           .from('price_rules')
                           .select('*')
@@ -1994,7 +1707,6 @@ export const OperationalDashboard = () => {
                           if (!confirm) return;
                         }
 
-                        // Copia as regras, alterando apenas o clinic_id
                         const rulesToInsert = sourceRules.map(rule => ({
                           clinic_id: copyToClinicId,
                           modality: rule.modality,

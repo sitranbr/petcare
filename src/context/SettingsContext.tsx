@@ -45,16 +45,17 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
 
-      // Apenas Clínicas e Veterinários têm personalização (White Label)
-      if (user.role === 'vet' || user.role === 'clinic') {
+      // Clínicas, Veterinários E Recepção têm personalização (White Label)
+      if (user.role === 'vet' || user.role === 'clinic' || user.role === 'reception' || user.level === 5) {
         try {
-          // Se o usuário é um convidado (tem ownerId), busca as configurações do criador
+          // Se o usuário é um convidado ou equipe interna (tem ownerId), busca as configurações do criador
           const isGuest = user.ownerId && user.ownerId !== user.id;
+          const isReception = user.role === 'reception' || user.level === 5;
           let targetUserId = user.id;
           let targetTable = user.role === 'vet' ? 'veterinarians' : 'clinics';
           
-          if (isGuest) {
-            // Para convidados, precisa buscar o role do criador para saber qual tabela usar
+          if (isGuest || isReception) {
+            // Para convidados/recepção, precisa buscar o role do criador para saber qual tabela usar
             const { data: ownerProfile } = await supabase
               .from('profiles')
               .select('role')
@@ -66,9 +67,9 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
               // Usa a tabela correspondente ao role do criador
               targetTable = ownerProfile.role === 'vet' ? 'veterinarians' : 'clinics';
               
-              console.log('🎨 Usuário convidado detectado. Buscando configurações do criador:', {
-                guestId: user.id,
-                guestRole: user.role,
+              console.log('🎨 Usuário dependente detectado. Buscando configurações do criador:', {
+                userId: user.id,
+                userRole: user.role,
                 ownerId: user.ownerId,
                 ownerRole: ownerProfile.role,
                 targetTable
@@ -80,7 +81,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
             }
           }
           
-          // Busca dados vinculados ao perfil do criador (ou do próprio usuário se não for convidado)
+          // Busca dados vinculados ao perfil do criador (ou do próprio usuário se não for dependente)
           const { data } = await supabase
             .from(targetTable)
             .select('name, document, phone, email, address, logo_url, crmv')
@@ -99,8 +100,8 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
               logoUrl: data.logo_url || ''
             }));
             
-            if (isGuest) {
-              console.log('✅ Configurações do criador aplicadas ao convidado:', {
+            if (isGuest || isReception) {
+              console.log('✅ Configurações do criador aplicadas ao dependente:', {
                 name: data.name,
                 logoUrl: data.logo_url,
                 document: targetTable === 'veterinarians' ? data.crmv : data.document
@@ -116,7 +117,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
           if (isMounted) setSettings(DEFAULT_SETTINGS);
         }
       } else {
-        // Admin, Recepção ou outros níveis usam o padrão do sistema
+        // Admin ou outros níveis usam o padrão do sistema
         if (isMounted) setSettings(DEFAULT_SETTINGS);
       }
     };

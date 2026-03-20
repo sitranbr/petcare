@@ -54,8 +54,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const userIdRef = useRef<string | null>(null);
   const isHydratingRef = useRef(false);
 
-  // ... (createUserFromSession, setProvisionalTenant, loadLinkedTenants, hydrateUserProfile, useEffect init mantidos)
-  
   const createUserFromSession = (sessionUser: any): User => {
     const metadata = sessionUser.user_metadata || {};
     const level = metadata.level || 5;
@@ -106,22 +104,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
            }
          }
       } else if ((currentUser.role === 'reception' || currentUser.level === 5) && currentUser.ownerId) {
-        // Membro da equipe interna (recepção): herda o contexto do assinante (clínica/veterinário que o criou)
-        // NÃO é parceiro - vê os mesmos dados do assinante conforme permissões
+        // Membro da equipe interna (recepção): herda o contexto do assinante
         const ownerProfileId = currentUser.ownerId;
-        const { data: clinicByOwner } = await supabase.from('clinics').select('id, name').eq('profile_id', ownerProfileId).maybeSingle();
-        if (clinicByOwner) {
-          myEntityId = clinicByOwner.id;
-          myEntityName = clinicByOwner.name;
-          myType = 'clinic';
+        
+        // CORREÇÃO: Busca diretamente nas tabelas ignorando o 'role' do owner, 
+        // pois o owner pode ser 'admin' (level 1) e não ter role 'vet' ou 'clinic'.
+        
+        // Tenta buscar na tabela de veterinários primeiro (mais comum para donos)
+        const { data: vetByOwner } = await supabase.from('veterinarians').select('id, name').eq('profile_id', ownerProfileId).maybeSingle();
+        
+        if (vetByOwner) {
+          myEntityId = vetByOwner.id;
+          myEntityName = vetByOwner.name;
+          myType = 'vet';
         } else {
-          const { data: vetByOwner } = await supabase.from('veterinarians').select('id, name').eq('profile_id', ownerProfileId).maybeSingle();
-          if (vetByOwner) {
-            myEntityId = vetByOwner.id;
-            myEntityName = vetByOwner.name;
-            myType = 'vet';
+          // Se não achou em vet, tenta em clinics
+          const { data: clinicByOwner } = await supabase.from('clinics').select('id, name').eq('profile_id', ownerProfileId).maybeSingle();
+          if (clinicByOwner) {
+            myEntityId = clinicByOwner.id;
+            myEntityName = clinicByOwner.name;
+            myType = 'clinic';
           }
         }
+
         // Fallback: se RLS bloqueou as queries acima, usa RPC que bypassa RLS
         if (myEntityId === currentUser.id) {
           const { data: rpcData } = await supabase.rpc('get_owner_tenant_for_reception');
